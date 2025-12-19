@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <input id="msgInput" type="text" placeholder="メッセージを入力" />
+    <button id="sendBtn">送信</button>
+
+    <div id="result">ここに結果を表示します</div>
+</body>
+<script>
+    const msgInput = document.getElementById("msgInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const result = document.getElementById("result");
+
+async function sendData() {
+  const message = msgInput.value;
+
+  try {
+    result.textContent = "送信中...";
+
+    const response = await fetch("/api/echo", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        message: message,
+        value: 123
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error("HTTPエラー: " + response.status);
+    }
+
+    const data = await response.json();
+
+    // 返ってきたJSONを画面に表示
+    result.textContent = `サーバからの返事: message = ${data.message}, value = ${data.value}`;
+  } catch (error) {
+    console.error("エラー:", error);
+    result.textContent = "送信に失敗しました";
+  }
+}
+
+sendBtn.addEventListener("click", sendData);
+</script>
+</html>
