@@ -100,6 +100,10 @@
     <h1 id="gameOverTitle">ゲーム終了</h1>
     <p id="gameOverMessage">おつかれさまでした。</p>
     <button id="retryBtn">もう一度</button>
+
+    <!-- ネットワーク状態の表示を追加 -->
+    <div id="networkStatus">スコアはまだ送信されていません</div>
+
   </div>
 
   <script>
@@ -185,57 +189,8 @@
       }
 
       updateViewByGameState();
-
       sendScore();
     }
-
-    const networkStatus = document.getElementById("networkStatus");
-
-    // finalScore をサーバへ送信する関数
-    async function sendScore() {
-    try {
-    // HUDに「送信中…」と表示
-    networkStatus.textContent = "スコア送信中...";
-
-    const response = await fetch("/api/score", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        stage: stage,
-        score: score,
-        hp: hp,
-        timeLeft: timeLeft,
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error("HTTPエラー: " + response.status);
-    }
-
-    const data = await response.json();
-
-    // 成功したらHUDを更新
-    networkStatus.textContent = "スコア送信完了！";
-    console.log("サーバからの返事:", data);
-    } catch (error) {
-    console.error("スコア送信中にエラーが発生しました:", error);
-    networkStatus.textContent = "スコア送信に失敗しました";
-    }
-    }
-
-
-    <div id="gameOverScreen" style="display:none;">
-    <h1 id="gameOverTitle">ゲーム終了</h1>
-    <p id="gameOverMessage">おつかれさまでした。</p>
-    <button id="retryBtn">もう一度</button>
-
-    <!-- ネットワーク状態の表示を追加 -->
-    <div id="networkStatus">スコアはまだ送信されていません</div>
-
-    </div>
-
 
     // 次のステージへ進む
     function goToNextStage() {
@@ -742,6 +697,43 @@
 
     // 初期表示
     updateViewByGameState();
+
+    const networkStatus = document.getElementById("networkStatus");
+
+    // finalScore をサーバへ送信する関数
+    async function sendScore() {
+      try {
+        // HUDに「送信中…」と表示
+        networkStatus.textContent = "スコア送信中...";
+
+        const response = await fetch("/api/score", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            stage: stage,
+            score: score,
+            hp: hp,
+            timeLeft: timeLeft,
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error("HTTPエラー: " + response.status);
+        }
+
+        const data = await response.json();
+
+        // 成功したらHUDを更新
+        networkStatus.textContent = "スコア送信完了！";
+        console.log("サーバからの返事:", data);
+      } catch (error) {
+        console.error("スコア送信中にエラーが発生しました:", error);
+        networkStatus.textContent = "スコア送信に失敗しました";
+      }
+    }
+
   </script>
 </body>
 </html>
