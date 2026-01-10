@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>アクションゲーム・スターター（HUD＋被弾でHP-30）</title>
+  <style>
+    body {
+      margin: 0;
+      background: #222;
+      color: #eee;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #startScreen,
+    #gameOverScreen {
+      margin-top: 40px;
+      text-align: center;
+    }
+    #gameContainer {
+      display: none; /* gameState=play のときだけ表示 */
+      flex-direction: column;
+      align-items: center;
+      margin-top: 8px;
+    }
+    #info {
+      margin: 4px 0;
+      font-size: 13px;
+      text-align: center;
+    }
+    #hud {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      font-size: 14px;
+      margin: 4px 0;
+    }
+    #hpBarOuter {
+      width: 120px;
+      height: 10px;
+      border: 1px solid #ccc;
+      background: #333;
+      overflow: hidden;
+    }
+    #hpBarInner {
+      height: 100%;
+      width: 100%;
+      background: #4caf50;
+      transition: width 0.1s linear;
+    }
+    #pauseLabel {
+      color: #ffcc66;
+      min-width: 60px;
+    }
+    canvas {
+      background: #202838;
+      border: 2px solid #fff;
+    }
+    button {
+      padding: 8px 16px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 開始画面（DOM） -->
+  <div id="startScreen">
+    <p>← → で移動 ／ ↑ または Space でジャンプ</p>
+    <p>全2ステージ。敵に当たらないように、各ステージ10秒間逃げ切ろう！</p>
+    <p>マウスクリックで敵を破壊できます。Pキーで一時停止／再開。</p>
+    <p>敵に当たるとHPが30減り、0になるとゲームオーバーです。</p>
+    <button id="startBtn">ゲーム開始</button>
+  </div>
+
+  <!-- ゲーム画面（Canvas + HUD） -->
+  <div id="gameContainer">
+    <div id="info">
+      HUD（Score / Stage / Time / HP）が DOM 要素として実装されています。
+    </div>
+
+    <!-- HUD（DOM） -->
+    <div id="hud">
+      <span>Score: <span id="scoreValue">0</span></span>
+      <span>Stage: <span id="stageValue">1</span></span>
+      <span>Time: <span id="timeValue">10.0</span>s</span>
+      <div id="hpBarOuter">
+        <div id="hpBarInner"></div>
+      </div>
+      <span id="pauseLabel"></span>
+    </div>
+
+    <canvas id="game" width="640" height="360"></canvas>
+  </div>
+
+  <!-- 終了画面（DOM） -->
+  <div id="gameOverScreen" style="display:none;">
+    <h1 id="gameOverTitle">ゲーム終了</h1>
+    <p id="gameOverMessage">おつかれさまでした。</p>
+    <button id="retryBtn">もう一度</button>
+
+        <!-- ネットワーク状態の表示を追加 -->
+    <div id="networkStatus">スコアはまだ送信されていません</div>
+
+  </div>
+
+  <script>
+    // ===============================
+    //  ゲーム状態管理
+    // ===============================
+    let gameState = "start";   // "start" / "play" / "gameover"
+    let gameResult = "";       // "hit" / "timeout"
+    let isPaused = false;      // ポーズ中かどうか
+
+    let stage = 1;             // 1 or 2
+    const MAX_STAGE = 2;
+
+    const STAGE_TIME = {
+      1: 10,   // ステージ1の制限時間
+      2: 10,   // ステージ2の制限時間
+    };
+
+    let timeLeft = STAGE_TIME[1]; // 残り時間（秒）
+
+    // スコア・HP
+    let score = 0;
+    let hp = 100;  // 0 になったらゲームオーバー
+
+    // DOM 参照
+    const startScreen = document.getElementById("startScreen");
+    const gameContainer = document.getElementById("gameContainer");
+    const gameOverScreen = document.getElementById("gameOverScreen");
+    const startBtn = document.getElementById("startBtn");
+    const retryBtn = document.getElementById("retryBtn");
+    const gameOverTitle = document.getElementById("gameOverTitle");
+    const gameOverMessage = document.getElementById("gameOverMessage");
+
+    const scoreValue = document.getElementById("scoreValue");
+    const stageValue = document.getElementById("stageValue");
+    const timeValue  = document.getElementById("timeValue");
+    const hpBarInner = document.getElementById("hpBarInner");
+    const pauseLabel = document.getElementById("pauseLabel");
+
+    function updateViewByGameState() {
+      startScreen.style.display = "none";
+      gameContainer.style.display = "none";
+      gameOverScreen.style.display = "none";
+
+      if (gameState === "start") {
+        startScreen.style.display = "block";
+      } else if (gameState === "play") {
+        gameContainer.style.display = "flex";
+      } else if (gameState === "gameover") {
+        gameOverScreen.style.display = "block";
+      }
+    }
+
+    startBtn.addEventListener("click", startGame);
+    retryBtn.addEventListener("click", () => {
+      gameState = "start";
+      updateViewByGameState();
+    });
+
+    function startGame() {
+      resetGame();            // stage=1, score/hp 初期化
+      gameResult = "";
+      isPaused = false;
+      lastTime = performance.now();
+      gameState = "play";
+      updateViewByGameState();
+      requestAnimationFrame(loop);
+    }
+
+    function endGame(reason) {
+      gameResult = reason; // "hit" / "timeout"
+      gameState = "gameover";
+
+      if (reason === "timeout") {
+        gameOverTitle.textContent = "クリア！";
+        gameOverMessage.textContent = "2ステージを生き残りました！";
+      } else if (reason === "hit") {
+        gameOverTitle.textContent = "ゲームオーバー";
+        gameOverMessage.textContent = "HPが0になりました…。";
+      } else {
+        gameOverTitle.textContent = "ゲーム終了";
+        gameOverMessage.textContent = "おつかれさまでした。";
+      }
+
+      updateViewByGameState();
+      sendScore();
+    }
+
+    // 次のステージへ進む
+    function goToNextStage() {
+      if (stage < MAX_STAGE) {
+        stage++;
+        setupStage();
+        isPaused = false;
+        lastTime = performance.now();
+        updateHUD();
+      }
+    }
+
+    // ===============================
+    //  基本設定
+    // ===============================
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    const FLOOR_Y = 300;        // 床のY座標
+    const GRAVITY = 2000;       // 重力加速度(px/s^2)
+    const MOVE_SPEED = 260;     // 横移動速度(px/s)
+    const JUMP_POWER = -750;    // ジャンプ初速度(px/s)
+
+    // ===============================
+    //  入力状態管理（keys）
+    // ===============================
+    const keys = {};
+
+    document.addEventListener('keydown', (e) => {
+      // PキーでポーズON/OFF（プレイ中のみ）
+      if (e.key === "p" || e.key === "P") {
+        if (gameState === "play") {
+          isPaused = !isPaused;
+          updateHUD();
+        }
+        return;
+      }
+
+      keys[e.key] = true;
+      if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      keys[e.key] = false;
+    });
+
+    // ===============================
+    //  マウス入力＆クリック判定用
+    // ===============================
+    const mouse = { x: 0, y: 0 };
+
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = e.clientX - rect.left;
+      mouse.y = e.clientY - rect.top;
+    });
+
+    canvas.addEventListener('mousedown', (e) => {
+      if (gameState !== "play" || isPaused) return; // プレイ中＆ポーズ中でないときだけ反応
+
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+
+      for (const enemy of enemies) {
+        if (!enemy.alive) continue;
+
+        const hit =
+          mx >= enemy.x &&
+          mx <= enemy.x + enemy.w &&
+          my >= enemy.y &&
+          my <= enemy.y + enemy.h;
+
+        if (hit) {
+          enemy.alive = false;
+
+          explosions.push({
+            x: enemy.x + enemy.w / 2,
+            y: enemy.y + enemy.h / 2,
+            radius: 10,
+            life: 0.3,
+            maxLife: 0.3,
+          });
+
+          // スコア加算（DOM HUD に反映）
+          score += 10;
+          updateHUD();
+
+          break;
+        }
+      }
+    });
+
+    // ===============================
+    //  プレイヤーの状態
+    // ===============================
+    const player = {
+      x: 80,
+      y: FLOOR_Y - 32,
+      w: 32,
+      h: 32,
+      vx: 0,
+      vy: 0,
+      sy: 0,
+      onGround: false,
+      state: "idle",
+      frameIndex: 0,
+      frameTimer: 0,
+    };
+
+    // ===============================
+    //  スプライト画像
+    // ===============================
+    const sprite = new Image();
+    sprite.src = 'pipo-xmaschara01.png';
+
+    const SPRITE_FRAME_COUNT = 3;
+    const SPRITE_WIDTH  = 32;
+    const SPRITE_HEIGHT = 32;
+    const SPRITE_FRAME_SPEED = 0.15;
+    const SPRITE_FACING_LEFT_Y = 32;
+    const SPRITE_FACING_RIGHT_Y = 64;
+
+    // ===============================
+    //  敵オブジェクト（複数）
+    // ===============================
+    function createEnemy() {
+      return {
+        x: Math.random() * (canvas.width - 24),
+        y: -20,
+        w: 24,
+        h: 24,
+        vy: 150 + Math.random() * 100,  // ベース速度（stageで補正）
+        color: 'red',
+        alive: true,
+      };
+    }
+
+    const enemies = [];
+    for (let i = 0; i < 5; i++) {
+      enemies.push(createEnemy());
+    }
+
+    function resetEnemies() {
+      const speedMul = (stage === 2) ? 1.5 : 1.0; // ステージ2は少し速く
+      for (let i = 0; i < enemies.length; i++) {
+        enemies[i].x = Math.random() * (canvas.width - enemies[i].w);
+        enemies[i].y = -enemies[i].h;
+        enemies[i].vy = (150 + Math.random() * 100) * speedMul;
+        enemies[i].alive = true;
+      }
+    }
+
+    // ===============================
+    //  爆発エフェクト
+    // ===============================
+    const explosions = [];
+
+    function updateExplosions(dt) {
+      for (let i = explosions.length - 1; i >= 0; i--) {
+        const ex = explosions[i];
+        ex.life -= dt;
+        ex.radius += 60 * dt;
+
+        if (ex.life <= 0) {
+          explosions.splice(i, 1);
+        }
+      }
+    }
+
+    function drawExplosions() {
+      explosions.forEach(ex => {
+        const t = ex.life / ex.maxLife;
+        const alpha = Math.max(t, 0);
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.arc(ex.x, ex.y, ex.radius, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255, 220, 80, 1)";
+        ctx.fill();
+        ctx.restore();
+      });
+    }
+
+    // ===============================
+    //  HUD 更新処理（DOM 連携）
+    // ===============================
+    function updateHUD() {
+      scoreValue.textContent = score;
+      stageValue.textContent = stage;
+      timeValue.textContent  = timeLeft.toFixed(1);
+
+      // HPバーの幅（0〜100％）
+      const hpPercent = Math.max(0, Math.min(100, hp));
+      hpBarInner.style.width = hpPercent + "%";
+
+      // HPに応じて色を変える
+      if (hpPercent > 50) {
+        hpBarInner.style.backgroundColor = "#4caf50"; // 緑
+      } else if (hpPercent > 20) {
+        hpBarInner.style.backgroundColor = "#ffeb3b"; // 黄
+      } else {
+        hpBarInner.style.backgroundColor = "#f44336"; // 赤
+      }
+
+      // ポーズ表示
+      pauseLabel.textContent = isPaused ? "PAUSED" : "";
+    }
+
+    // ===============================
+    //  時間管理とゲームループ
+    // ===============================
+    let lastTime = 0;
+
+    function loop(now) {
+      if (gameState !== "play") return;
+
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+
+      // ポーズ中は時間を進めない
+      if (isPaused) {
+        draw();
+        requestAnimationFrame(loop);
+        return;
+      }
+
+      // 残り時間の更新
+      timeLeft -= dt;
+      if (timeLeft <= 0) {
+        timeLeft = 0;
+
+        // ステージ1終了 → ステージ2へ
+        if (stage === 1) {
+          goToNextStage();
+          draw();
+          requestAnimationFrame(loop);
+          return;
+        }
+
+        // ステージ2終了 → ゲームクリア
+        if (stage === 2) {
+          update(dt);
+          updateHUD();
+          draw();
+          endGame("timeout"); // 2ステージクリア
+          return;
+        }
+      }
+
+      update(dt);
+
+      // ★ HPが0になったらゲームオーバー（被弾の積み重ね）
+      if (hp <= 0) {
+        hp = 0;
+        updateHUD();
+        draw();
+        endGame("hit");
+        return;
+      }
+
+      updateHUD();
+      draw();
+
+      requestAnimationFrame(loop);
+    }
+
+    // ===============================
+    //  更新処理
+    // ===============================
+    function update(dt) {
+      handleInput(dt);
+      applyPhysics(dt);
+      updatePlayerState();
+      updatePlayerAnimation(dt);
+
+      updateEnemies(dt);
+      checkCollisionsWithEnemies();
+      updateExplosions(dt);
+
+      // ※ ここでは HP は減らさない（被弾時のみ変化）
+    }
+
+    function handleInput(dt) {
+      player.vx = 0;
+
+      if (keys["ArrowLeft"]) {
+        player.vx = -MOVE_SPEED;
+      }
+      if (keys["ArrowRight"]) {
+        player.vx = MOVE_SPEED;
+      }
+
+      const jumpKey = keys["ArrowUp"] || keys[" "];
+      if (jumpKey && player.onGround) {
+        player.vy = JUMP_POWER;
+        player.onGround = false;
+      }
+    }
+
+    function applyPhysics(dt) {
+      player.vy += GRAVITY * dt;
+
+      player.x += player.vx * dt;
+      player.y += player.vy * dt;
+
+      const bottom = player.y + player.h;
+      if (bottom >= FLOOR_Y) {
+        player.y = FLOOR_Y - player.h;
+        player.vy = 0;
+        player.onGround = true;
+      } else {
+        player.onGround = false;
+      }
+
+      if (player.x < 0) player.x = 0;
+      if (player.x + player.w > canvas.width) {
+        player.x = canvas.width - player.w;
+      }
+    }
+
+    function updatePlayerState() {
+      if (!player.onGround && player.vy < 0) {
+        player.state = "jump";
+      } else if (!player.onGround && player.vy > 0) {
+        player.state = "fall";
+      } else if (player.vx > 1) {
+        player.state = "runRight";
+      } else if (player.vx < 0) {
+        player.state = "runLeft";
+      } else {
+        player.state = "idle";
+      }
+    }
+
+    function updatePlayerAnimation(dt) {
+      player.frameTimer += dt;
+      if (player.frameTimer > SPRITE_FRAME_SPEED) {
+        player.frameTimer -= SPRITE_FRAME_SPEED;
+        player.frameIndex = (player.frameIndex + 1) % SPRITE_FRAME_COUNT;
+      }
+    }
+
+    function updateEnemies(dt) {
+      enemies.forEach(enemy => {
+        if (!enemy.alive) return;
+
+        enemy.y += enemy.vy * dt;
+
+        if (enemy.y > canvas.height) {
+          enemy.y = -enemy.h;
+          enemy.x = Math.random() * (canvas.width - enemy.w);
+          // 速度は stage に応じてすでに設定済み
+        }
+      });
+    }
+
+    // ===============================
+    //  描画処理
+    // ===============================
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // ステージごとに背景色を変える
+      ctx.fillStyle = (stage === 1) ? "#202838" : "#203828";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // 床
+      ctx.fillStyle = "#445";
+      ctx.fillRect(0, FLOOR_Y, canvas.width, canvas.height - FLOOR_Y);
+
+      // プレイヤー
+      drawPlayer();
+      // 敵
+      drawEnemies();
+      // 爆発
+      drawExplosions();
+
+      // デバッグ用テキスト（左下あたり）
+      ctx.fillStyle = "#fff";
+      ctx.font = "13px monospace";
+      ctx.textAlign = "left";
+      ctx.fillText(`state: ${player.state}`, 10, 60);
+      ctx.fillText(`x: ${player.x.toFixed(1)}  y: ${player.y.toFixed(1)}`, 10, 76);
+      ctx.fillText(`vx: ${player.vx.toFixed(1)} vy: ${player.vy.toFixed(1)}`, 10, 92);
+      ctx.fillText(`frameIndex: ${player.frameIndex}`, 10, 108);
+
+      // ポーズ中オーバーレイ
+      if (isPaused) {
+        ctx.save();
+        ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff";
+        ctx.font = "32px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText("PAUSED", canvas.width / 2, canvas.height / 2);
+        ctx.restore();
+      }
+    }
+
+    function drawPlayer() {
+      if (sprite.complete && sprite.naturalWidth > 0) {
+        const sx = SPRITE_WIDTH * player.frameIndex;
+
+        if (player.state == "runRight") player.sy = SPRITE_FACING_RIGHT_Y;
+        else if (player.state == "runLeft") player.sy = SPRITE_FACING_LEFT_Y;
+
+        ctx.drawImage(
+          sprite,
+          sx, player.sy, SPRITE_WIDTH, SPRITE_HEIGHT,
+          Math.round(player.x), Math.round(player.y), player.w, player.h
+        );
+      } else {
+        let color = "#7ef5e1";
+        switch (player.state) {
+          case "runRight":  color = "#6dd3ff"; break;
+          case "runLeft":   color = "#6dd3ff"; break;
+          case "jump":      color = "#ffd966"; break;
+          case "fall":      color = "#ff9999"; break;
+        }
+        ctx.fillStyle = color;
+        ctx.fillRect(Math.round(player.x), Math.round(player.y), player.w, player.h);
+      }
+    }
+
+    function drawEnemies() {
+      enemies.forEach(enemy => {
+        if (!enemy.alive) return;
+
+        ctx.fillStyle = enemy.color;
+        ctx.fillRect(
+          Math.round(enemy.x),
+          Math.round(enemy.y),
+          enemy.w,
+          enemy.h
+        );
+      });
+    }
+
+    function checkCollisionsWithEnemies() {
+        for (const enemy of enemies) {
+            if (!enemy.alive) continue;
+
+            const overlap =
+            player.x < enemy.x + enemy.w &&
+            player.x + player.w > enemy.x &&
+            player.y < enemy.y + enemy.h &&
+            player.y + player.h > enemy.y;
+
+            if (overlap) {
+            // ★ 被弾したらHPを30減らす
+            hp -= 30;
+            if (hp < 0) hp = 0;
+
+            // ★ 衝突した敵は消滅させる
+            enemy.alive = false;
+
+            // ★ 爆発エフェクト（任意）
+            explosions.push({
+                x: enemy.x + enemy.w / 2,
+                y: enemy.y + enemy.h / 2,
+                radius: 10,
+                life: 0.3,
+                maxLife: 0.3,
+            });
+
+            // 一度のフレームで複数回減らないようにループを抜ける
+            break;
+            }
+        }
+    }
+
+
+    // ===============================
+    //  リセット処理
+    // ===============================
+    function setupStage() {
+      timeLeft = STAGE_TIME[stage];
+
+      // プレイヤー初期位置
+      player.x = 80;
+      player.y = FLOOR_Y - 32;
+      player.vx = 0;
+      player.vy = 0;
+      player.onGround = false;
+      player.state = "idle";
+      player.frameIndex = 0;
+      player.frameTimer = 0;
+
+      resetEnemies();
+      explosions.length = 0;
+    }
+
+    function resetGame() {
+      stage = 1;
+      score = 0;
+      hp = 100;
+      setupStage();
+      updateHUD();
+    }
+
+    // 初期表示
+    updateViewByGameState();
+
+    const networkStatus = document.getElementById("networkStatus");
+
+// finalScore をサーバへ送信する関数
+async function sendScore() {
+  try {
+    // HUDに「送信中…」と表示
+    networkStatus.textContent = "スコア送信中...";
+
+    const response = await fetch("/api/score", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        stage: stage,
+        score: score,
+        hp: hp,
+        timeLeft: timeLeft,
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error("HTTPエラー: " + response.status);
+    }
+
+    const data = await response.json();
+
+    // 成功したらHUDを更新
+    networkStatus.textContent = "スコア送信完了！";
+    console.log("サーバからの返事:", data);
+  } catch (error) {
+    console.error("スコア送信中にエラーが発生しました:", error);
+    networkStatus.textContent = "スコア送信に失敗しました";
+  }
+}
+
+  </script>
+</body>
+</html>
