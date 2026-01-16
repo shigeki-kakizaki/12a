@@ -1,4 +1,3 @@
-<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
@@ -65,7 +64,7 @@
   </style>
 </head>
 <body>
-柿﨑が入力した
+<h1>この行は柿﨑が追加しました</h1>
   <!-- 開始画面（DOM） -->
   <div id="startScreen">
     <p>← → で移動 ／ ↑ または Space でジャンプ</p>
@@ -103,7 +102,6 @@
 
     <!-- ネットワーク状態の表示を追加 -->
     <div id="networkStatus">スコアはまだ送信されていません</div>
-
   </div>
 
   <script>
@@ -700,7 +698,7 @@
 
     const networkStatus = document.getElementById("networkStatus");
 
-    // finalScore をサーバへ送信する関数
+// finalScore をサーバへ送信する関数
     async function sendScore() {
       try {
         // HUDに「送信中…」と表示
