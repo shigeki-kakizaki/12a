@@ -65,8 +65,7 @@
   </style>
 </head>
 <body>
-鬼頭が入力した
-
+<h1>この行は柿﨑が追加しました</h1>
   <!-- 開始画面（DOM） -->
   <div id="startScreen">
     <p>← → で移動 ／ ↑ または Space でジャンプ</p>
@@ -102,7 +101,7 @@
     <p id="gameOverMessage">おつかれさまでした。</p>
     <button id="retryBtn">もう一度</button>
 
-    <!-- ネットワーク状態の表示を追加 -->
+        <!-- ネットワーク状態の表示を追加 -->
     <div id="networkStatus">スコアはまだ送信されていません</div>
 
   </div>
@@ -701,39 +700,39 @@
 
     const networkStatus = document.getElementById("networkStatus");
 
-    // finalScore をサーバへ送信する関数
-    async function sendScore() {
-      try {
-        // HUDに「送信中…」と表示
-        networkStatus.textContent = "スコア送信中...";
+// finalScore をサーバへ送信する関数
+async function sendScore() {
+  try {
+    // HUDに「送信中…」と表示
+    networkStatus.textContent = "スコア送信中...";
 
-        const response = await fetch("/api/score", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            stage: stage,
-            score: score,
-            hp: hp,
-            timeLeft: timeLeft,
-          })
-        });
+    const response = await fetch("/api/score", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        stage: stage,
+        score: score,
+        hp: hp,
+        timeLeft: timeLeft,
+      })
+    });
 
-        if (!response.ok) {
-          throw new Error("HTTPエラー: " + response.status);
-        }
-
-        const data = await response.json();
-
-        // 成功したらHUDを更新
-        networkStatus.textContent = "スコア送信完了！";
-        console.log("サーバからの返事:", data);
-      } catch (error) {
-        console.error("スコア送信中にエラーが発生しました:", error);
-        networkStatus.textContent = "スコア送信に失敗しました";
-      }
+    if (!response.ok) {
+      throw new Error("HTTPエラー: " + response.status);
     }
+
+    const data = await response.json();
+
+    // 成功したらHUDを更新
+    networkStatus.textContent = "スコア送信完了！";
+    console.log("サーバからの返事:", data);
+  } catch (error) {
+    console.error("スコア送信中にエラーが発生しました:", error);
+    networkStatus.textContent = "スコア送信に失敗しました";
+  }
+}
 
   </script>
 </body>
